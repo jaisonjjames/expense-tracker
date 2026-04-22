@@ -1,45 +1,31 @@
 import { useState } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
 import './App.css'
+import {
+  addTransaction,
+  selectBalance,
+  selectFilteredTransactions,
+  selectFilters,
+  selectTotalExpenses,
+  selectTotalIncome,
+  setFilterCategory,
+  setFilterType,
+} from './features/transactions/transactionsSlice'
 
 function App() {
-  const [transactions, setTransactions] = useState([
-    { id: 1, description: "Salary", amount: 5000, type: "income", category: "salary", date: "2025-01-01" },
-    { id: 2, description: "Rent", amount: 1200, type: "expense", category: "housing", date: "2025-01-02" },
-    { id: 3, description: "Groceries", amount: 150, type: "expense", category: "food", date: "2025-01-03" },
-    { id: 4, description: "Freelance Work", amount: 800, type: "income", category: "salary", date: "2025-01-05" },
-    { id: 5, description: "Electric Bill", amount: 95, type: "expense", category: "utilities", date: "2025-01-06" },
-    { id: 6, description: "Dinner Out", amount: 65, type: "expense", category: "food", date: "2025-01-07" },
-    { id: 7, description: "Gas", amount: 45, type: "expense", category: "transport", date: "2025-01-08" },
-    { id: 8, description: "Netflix", amount: 15, type: "expense", category: "entertainment", date: "2025-01-10" },
-  ]);
-
+  const dispatch = useDispatch();
+  const totalIncome = useSelector(selectTotalIncome);
+  const totalExpenses = useSelector(selectTotalExpenses);
+  const balance = useSelector(selectBalance);
+  const filteredTransactions = useSelector(selectFilteredTransactions);
+  const filters = useSelector(selectFilters);
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [type, setType] = useState("expense");
   const [category, setCategory] = useState("food");
-  const [filterType, setFilterType] = useState("all");
-  const [filterCategory, setFilterCategory] = useState("all");
 
   const categories = ["food", "housing", "utilities", "transport", "entertainment", "salary", "other"];
   const formatCurrency = (value) => Number(value).toFixed(2);
-
-  const totalIncome = transactions
-    .filter(t => t.type === "income")
-    .reduce((sum, t) => sum + Number(t.amount), 0);
-
-  const totalExpenses = transactions
-    .filter(t => t.type === "expense")
-    .reduce((sum, t) => sum + Number(t.amount), 0);
-
-  const balance = totalIncome - totalExpenses;
-
-  let filteredTransactions = transactions;
-  if (filterType !== "all") {
-    filteredTransactions = filteredTransactions.filter(t => t.type === filterType);
-  }
-  if (filterCategory !== "all") {
-    filteredTransactions = filteredTransactions.filter(t => t.category === filterCategory);
-  }
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -55,7 +41,7 @@ function App() {
       date: new Date().toISOString().split('T')[0],
     };
 
-    setTransactions([...transactions, newTransaction]);
+    dispatch(addTransaction(newTransaction));
     setDescription("");
     setAmount("");
     setType("expense");
@@ -114,12 +100,12 @@ function App() {
       <div className="transactions">
         <h2>Transactions</h2>
         <div className="filters">
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+          <select value={filters.type} onChange={(e) => dispatch(setFilterType(e.target.value))}>
             <option value="all">All Types</option>
             <option value="income">Income</option>
             <option value="expense">Expense</option>
           </select>
-          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+          <select value={filters.category} onChange={(e) => dispatch(setFilterCategory(e.target.value))}>
             <option value="all">All Categories</option>
             {categories.map(cat => (
               <option key={cat} value={cat}>{cat}</option>
