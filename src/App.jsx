@@ -3,14 +3,14 @@ import './App.css'
 
 function App() {
   const [transactions, setTransactions] = useState([
-    { id: 1, description: "Salary", amount: "5000", type: "income", category: "salary", date: "2025-01-01" },
-    { id: 2, description: "Rent", amount: "1200", type: "expense", category: "housing", date: "2025-01-02" },
-    { id: 3, description: "Groceries", amount: "150", type: "expense", category: "food", date: "2025-01-03" },
-    { id: 4, description: "Freelance Work", amount: "800", type: "expense", category: "salary", date: "2025-01-05" },
-    { id: 5, description: "Electric Bill", amount: "95", type: "expense", category: "utilities", date: "2025-01-06" },
-    { id: 6, description: "Dinner Out", amount: "65", type: "expense", category: "food", date: "2025-01-07" },
-    { id: 7, description: "Gas", amount: "45", type: "expense", category: "transport", date: "2025-01-08" },
-    { id: 8, description: "Netflix", amount: "15", type: "expense", category: "entertainment", date: "2025-01-10" },
+    { id: 1, description: "Salary", amount: 5000, type: "income", category: "salary", date: "2025-01-01" },
+    { id: 2, description: "Rent", amount: 1200, type: "expense", category: "housing", date: "2025-01-02" },
+    { id: 3, description: "Groceries", amount: 150, type: "expense", category: "food", date: "2025-01-03" },
+    { id: 4, description: "Freelance Work", amount: 800, type: "income", category: "salary", date: "2025-01-05" },
+    { id: 5, description: "Electric Bill", amount: 95, type: "expense", category: "utilities", date: "2025-01-06" },
+    { id: 6, description: "Dinner Out", amount: 65, type: "expense", category: "food", date: "2025-01-07" },
+    { id: 7, description: "Gas", amount: 45, type: "expense", category: "transport", date: "2025-01-08" },
+    { id: 8, description: "Netflix", amount: 15, type: "expense", category: "entertainment", date: "2025-01-10" },
   ]);
 
   const [description, setDescription] = useState("");
@@ -21,14 +21,15 @@ function App() {
   const [filterCategory, setFilterCategory] = useState("all");
 
   const categories = ["food", "housing", "utilities", "transport", "entertainment", "salary", "other"];
+  const formatCurrency = (value) => Number(value).toFixed(2);
 
   const totalIncome = transactions
     .filter(t => t.type === "income")
-    .reduce((sum, t) => sum + t.amount, 0);
+    .reduce((sum, t) => sum + Number(t.amount), 0);
 
   const totalExpenses = transactions
     .filter(t => t.type === "expense")
-    .reduce((sum, t) => sum + t.amount, 0);
+    .reduce((sum, t) => sum + Number(t.amount), 0);
 
   const balance = totalIncome - totalExpenses;
 
@@ -42,12 +43,13 @@ function App() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!description || !amount) return;
+    const parsedAmount = Number.parseFloat(amount);
+    if (!description || Number.isNaN(parsedAmount) || parsedAmount <= 0) return;
 
     const newTransaction = {
       id: Date.now(),
       description,
-      amount,
+      amount: parsedAmount,
       type,
       category,
       date: new Date().toISOString().split('T')[0],
@@ -69,15 +71,15 @@ function App() {
       <div className="summary">
         <div className="summary-card">
           <h3>Income</h3>
-          <p className="income-amount">${totalIncome}</p>
+          <p className="income-amount">${formatCurrency(totalIncome)}</p>
         </div>
         <div className="summary-card">
           <h3>Expenses</h3>
-          <p className="expense-amount">${totalExpenses}</p>
+          <p className="expense-amount">${formatCurrency(totalExpenses)}</p>
         </div>
         <div className="summary-card">
           <h3>Balance</h3>
-          <p className="balance-amount">${balance}</p>
+          <p className="balance-amount">${formatCurrency(balance)}</p>
         </div>
       </div>
 
@@ -142,7 +144,7 @@ function App() {
                 <td>{t.description}</td>
                 <td>{t.category}</td>
                 <td className={t.type === "income" ? "income-amount" : "expense-amount"}>
-                  {t.type === "income" ? "+" : "-"}${t.amount}
+                  {t.type === "income" ? "+" : "-"}${formatCurrency(t.amount)}
                 </td>
 
               </tr>
