@@ -1,4 +1,4 @@
-import { createSelector, createSlice } from '@reduxjs/toolkit'
+import { createAsyncThunk, createSelector, createSlice } from '@reduxjs/toolkit'
 
 export const CATEGORIES = [
   "food",
@@ -10,51 +10,138 @@ export const CATEGORIES = [
   "other",
 ]
 
-const initialTransactions = [
-  { id: 1, description: "Salary", amount: 5000, type: "income", category: "salary", date: "2025-01-01" },
-  { id: 2, description: "Rent", amount: 1200, type: "expense", category: "housing", date: "2025-01-02" },
-  { id: 3, description: "Groceries", amount: 150, type: "expense", category: "food", date: "2025-01-03" },
-  { id: 4, description: "Freelance Work", amount: 800, type: "income", category: "salary", date: "2025-01-05" },
-  { id: 5, description: "Electric Bill", amount: 95, type: "expense", category: "utilities", date: "2025-01-06" },
-  { id: 6, description: "Dinner Out", amount: 65, type: "expense", category: "food", date: "2025-01-07" },
-  { id: 7, description: "Gas", amount: 45, type: "expense", category: "transport", date: "2025-01-08" },
-  { id: 8, description: "Netflix", amount: 15, type: "expense", category: "entertainment", date: "2025-01-10" },
-]
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? '/api'
+const FALLBACK_API_PORT = '3001'
+
+const resolveApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL
+  }
+
+  if (typeof window === 'undefined') {
+    return '/api'
+  }
+
+  if (window.location.port === FALLBACK_API_PORT) {
+    return '/api'
+  }
+
+  return `${window.location.protocol}//${window.location.hostname}:${FALLBACK_API_PORT}/api`
+}
+
+const apiBaseUrl = resolveApiBaseUrl()
+
+const readJsonSafely = async (response) => {
+  try {
+    return await response.json()
+  } catch {
+    return null
+  }
+}
 
 const initialState = {
-  items: initialTransactions,
+  items: [],
   filters: {
     type: "all",
     category: "all",
   },
+  status: 'idle',
+  createStatus: 'idle',
+  error: null,
 }
+
+export const fetchTransactions = createAsyncThunk(
+  'transactions/fetchTransactions',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/transactions`)
+      const data = await readJsonSafely(response)
+
+      if (!response.ok) {
+        return rejectWithValue(data?.error ?? 'Failed to load transactions.')
+      }
+
+      return data?.transactions ?? []
+    } catch {
+      return rejectWithValue('Could not reach the transaction API.')
+    }
+  },
+)
+
+export const createTransaction = createAsyncThunk(
+  'transactions/createTransaction',
+  async (transaction, { rejectWithValue }) => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/transactions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(transaction),
+      })
+      const data = await readJsonSafely(response)
+
+      if (!response.ok) {
+        return rejectWithValue(data?.error ?? 'Failed to save the transaction.')
+      }
+
+      return data?.transaction
+    } catch {
+      return rejectWithValue('Could not save the transaction to the API.')
+    }
+  },
+)
 
 const transactionsSlice = createSlice({
   name: 'transactions',
   initialState,
   reducers: {
-    hydrateTransactionsState: (_state, action) => action.payload,
-    addTransaction: (state, action) => {
-      state.items.push(action.payload)
-    },
     setFilterType: (state, action) => {
       state.filters.type = action.payload
     },
     setFilterCategory: (state, action) => {
       state.filters.category = action.payload
     },
+    clearTransactionsError: (state) => {
+      state.error = null
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchTransactions.pending, (state) => {
+        state.status = 'loading'
+        state.error = null
+      })
+      .addCase(fetchTransactions.fulfilled, (state, action) => {
+        state.status = 'succeeded'
+        state.items = action.payload
+      })
+      .addCase(fetchTransactions.rejected, (state, action) => {
+        state.status = 'failed'
+        state.error = action.payload ?? 'Failed to load transactions.'
+      })
+      .addCase(createTransaction.pending, (state) => {
+        state.createStatus = 'loading'
+        state.error = null
+      })
+      .addCase(createTransaction.fulfilled, (state, action) => {
+        state.createStatus = 'succeeded'
+        state.items.push(action.payload)
+      })
+      .addCase(createTransaction.rejected, (state, action) => {
+        state.createStatus = 'failed'
+        state.error = action.payload ?? 'Failed to save the transaction.'
+      })
   },
 })
 
-export const {
-  hydrateTransactionsState,
-  addTransaction,
-  setFilterType,
-  setFilterCategory,
-} = transactionsSlice.actions
+export const { setFilterType, setFilterCategory, clearTransactionsError } = transactionsSlice.actions
 
 export const selectTransactions = (state) => state.transactions.items
 export const selectFilters = (state) => state.transactions.filters
+export const selectTransactionsStatus = (state) => state.transactions.status
+export const selectCreateTransactionStatus = (state) => state.transactions.createStatus
+export const selectTransactionsError = (state) => state.transactions.error
 
 export const selectFilteredTransactions = createSelector(
   [selectTransactions, selectFilters],

@@ -13,15 +13,20 @@ import {
   YAxis,
 } from 'recharts'
 import {
-  addTransaction,
   CATEGORIES,
+  clearTransactionsError,
+  createTransaction,
+  fetchTransactions,
   selectBalance,
+  selectCreateTransactionStatus,
   selectExpenseByCategory,
   selectFilteredTransactions,
   selectFilters,
   selectInsights,
   selectRecentTransactions,
   selectTimelineData,
+  selectTransactionsError,
+  selectTransactionsStatus,
   selectTotalExpenses,
   selectTotalIncome,
   setFilterCategory,
@@ -85,6 +90,9 @@ function App() {
   const expenseByCategory = useSelector(selectExpenseByCategory)
   const recentTransactions = useSelector(selectRecentTransactions)
   const insights = useSelector(selectInsights)
+  const transactionsStatus = useSelector(selectTransactionsStatus)
+  const createTransactionStatus = useSelector(selectCreateTransactionStatus)
+  const transactionsError = useSelector(selectTransactionsError)
 
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState("")
@@ -98,6 +106,24 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme)
     window.localStorage.setItem(THEME_KEY, theme)
   }, [theme])
+
+  useEffect(() => {
+    if (transactionsStatus === 'idle') {
+      dispatch(fetchTransactions())
+    }
+  }, [dispatch, transactionsStatus])
+
+  useEffect(() => {
+    if (!transactionsError) {
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      dispatch(clearTransactionsError())
+    }, 4000)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [dispatch, transactionsError])
 
   const searchedTransactions = useMemo(() => {
     const query = searchTerm.trim().toLowerCase()
@@ -127,7 +153,7 @@ function App() {
     return [...recentTransactions].sort((left, right) => Number(right.amount) - Number(left.amount))[0]
   }, [recentTransactions])
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
     const parsedAmount = Number.parseFloat(amount)
 
@@ -135,25 +161,30 @@ function App() {
       return
     }
 
-    dispatch(
-      addTransaction({
-        id: Date.now(),
-        description: description.trim(),
-        amount: parsedAmount,
-        type,
-        category,
-        date,
-      }),
-    )
+    try {
+      await dispatch(
+        createTransaction({
+          description: description.trim(),
+          amount: parsedAmount,
+          type,
+          category,
+          date,
+        }),
+      ).unwrap()
 
-    setDescription("")
-    setAmount("")
-    setType("expense")
-    setCategory("food")
-    setDate(new Date().toISOString().split('T')[0])
+      setDescription("")
+      setAmount("")
+      setType("expense")
+      setCategory("food")
+      setDate(new Date().toISOString().split('T')[0])
+    } catch {
+      // The slice already captures and exposes the API error.
+    }
   }
 
   const themeLabel = theme === 'dark' ? 'Switch to light' : 'Switch to dark'
+  const isLoadingTransactions = transactionsStatus === 'loading'
+  const isSavingTransaction = createTransactionStatus === 'loading'
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -187,6 +218,12 @@ function App() {
             </button>
           </div>
         </section>
+
+        {transactionsError ? (
+          <section className="mb-6 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 shadow-sm">
+            {transactionsError}
+          </section>
+        ) : null}
 
         <section className="mb-6 grid items-start gap-7 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.72fr)]">
           <section
@@ -257,10 +294,11 @@ function App() {
 
               <div className="flex">
                 <button
-                  className="min-h-14 w-full cursor-pointer rounded-2xl bg-linear-to-br from-[var(--accent-strong)] to-[var(--accent-secondary)] px-[18px] font-bold text-[#fff7ef] shadow-[0_22px_44px_rgba(255,122,89,0.3)] transition hover:-translate-y-px"
+                  className="min-h-14 w-full cursor-pointer rounded-2xl bg-linear-to-br from-[var(--accent-strong)] to-[var(--accent-secondary)] px-[18px] font-bold text-[#fff7ef] shadow-[0_22px_44px_rgba(255,122,89,0.3)] transition hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
                   type="submit"
+                  disabled={isSavingTransaction}
                 >
-                  Save transaction
+                  {isSavingTransaction ? 'Saving transaction...' : 'Save transaction'}
                 </button>
               </div>
             </form>
@@ -277,7 +315,9 @@ function App() {
             <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-2">
               <article className="rounded-[22px] border border-[var(--border-color)] bg-[var(--glass-bg)] p-[18px]">
                 <span className={eyebrowClass}>Top expense</span>
-                <strong className="mt-2.5 block text-[1.2rem] capitalize">{insights.topExpenseCategory?.name ?? 'None'}</strong>
+                <strong className="mt-2.5 block text-[1.2rem] capitalize">
+                  {insights.topExpenseCategory?.name ?? 'None'}
+                </strong>
                 <small className={`mt-2 block ${mutedTextClass}`}>
                   {insights.topExpenseCategory ? formatCurrency(insights.topExpenseCategory.value) : 'No data yet'}
                 </small>
@@ -379,7 +419,7 @@ function App() {
               <div className="grid gap-3">
                 {[
                   ['Savings rate', formatPercent(insights.savingsRate), 'Based on total income versus total expenses.'],
-                  ['Transactions', `${insights.transactionCount}`, 'Total records currently stored in Redux.'],
+                  ['Transactions', `${insights.transactionCount}`, 'Total records currently stored in the API.'],
                   [
                     'Top category',
                     insights.topExpenseCategory?.name ?? 'No data',
@@ -497,94 +537,100 @@ function App() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
-            <div className="flex-1 overflow-auto rounded-[20px] border border-[var(--border-color)] bg-[var(--table-bg)]">
-              <table className="w-full border-collapse">
-                <thead className="bg-[var(--table-head-bg)]">
-                  <tr>
-                    {['Date', 'Description', 'Category', 'Type', 'Amount'].map((heading) => (
-                      <th
-                        className={`border-b border-[var(--border-color)] px-[18px] py-4 text-left text-[0.77rem] uppercase tracking-[0.14em] ${mutedTextClass}`}
-                        key={heading}
-                      >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {searchedTransactions.length > 0 ? (
-                    searchedTransactions
-                      .slice()
-                      .sort((left, right) => new Date(right.date) - new Date(left.date))
-                      .map((transaction) => (
-                        <tr className="transition hover:bg-[var(--row-hover)]" key={transaction.id}>
-                          <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
-                            {formatChartDate(transaction.date)}
-                          </td>
-                          <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
-                            {transaction.description}
-                          </td>
-                          <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
-                            <span className="inline-flex min-h-8 items-center rounded-full bg-[var(--soft-bg)] px-3 text-sm font-bold capitalize">
-                              {transaction.category}
-                            </span>
-                          </td>
-                          <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
-                            <span
-                              className={`inline-flex min-h-8 items-center rounded-full px-3 text-sm font-bold capitalize ${
+          {isLoadingTransactions ? (
+            <div className={`rounded-2xl border border-[var(--border-color)] bg-[var(--soft-bg)] px-4 py-6 text-center ${mutedTextClass}`}>
+              Loading transactions from the API...
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+              <div className="flex-1 overflow-auto rounded-[20px] border border-[var(--border-color)] bg-[var(--table-bg)]">
+                <table className="w-full border-collapse">
+                  <thead className="bg-[var(--table-head-bg)]">
+                    <tr>
+                      {['Date', 'Description', 'Category', 'Type', 'Amount'].map((heading) => (
+                        <th
+                          className={`border-b border-[var(--border-color)] px-[18px] py-4 text-left text-[0.77rem] uppercase tracking-[0.14em] ${mutedTextClass}`}
+                          key={heading}
+                        >
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {searchedTransactions.length > 0 ? (
+                      searchedTransactions
+                        .slice()
+                        .sort((left, right) => new Date(right.date) - new Date(left.date))
+                        .map((transaction) => (
+                          <tr className="transition hover:bg-[var(--row-hover)]" key={transaction.id}>
+                            <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
+                              {formatChartDate(transaction.date)}
+                            </td>
+                            <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
+                              {transaction.description}
+                            </td>
+                            <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
+                              <span className="inline-flex min-h-8 items-center rounded-full bg-[var(--soft-bg)] px-3 text-sm font-bold capitalize">
+                                {transaction.category}
+                              </span>
+                            </td>
+                            <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
+                              <span
+                                className={`inline-flex min-h-8 items-center rounded-full px-3 text-sm font-bold capitalize ${
+                                  transaction.type === 'income'
+                                    ? 'bg-emerald-400/15 text-[var(--income-color)]'
+                                    : 'bg-[rgba(255,122,89,0.14)] text-[var(--expense-color)]'
+                                }`}
+                              >
+                                {transaction.type}
+                              </span>
+                            </td>
+                            <td
+                              className={`border-b border-[var(--border-color)] px-[18px] py-4 font-semibold max-[720px]:px-3 ${
                                 transaction.type === 'income'
-                                  ? 'bg-emerald-400/15 text-[var(--income-color)]'
-                                  : 'bg-[rgba(255,122,89,0.14)] text-[var(--expense-color)]'
+                                  ? 'text-[var(--income-color)]'
+                                  : 'text-[var(--expense-color)]'
                               }`}
                             >
-                              {transaction.type}
-                            </span>
-                          </td>
-                          <td
-                            className={`border-b border-[var(--border-color)] px-[18px] py-4 font-semibold max-[720px]:px-3 ${
-                              transaction.type === 'income'
-                                ? 'text-[var(--income-color)]'
-                                : 'text-[var(--expense-color)]'
-                            }`}
-                          >
-                            {transaction.type === 'income' ? '+' : '-'}
-                            {formatCurrency(transaction.amount)}
-                          </td>
-                        </tr>
-                      ))
-                  ) : (
-                    <tr>
-                      <td className={`px-[18px] py-9 text-center ${mutedTextClass}`} colSpan="5">
-                        No transactions match the current filters or search.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                              {transaction.type === 'income' ? '+' : '-'}
+                              {formatCurrency(transaction.amount)}
+                            </td>
+                          </tr>
+                        ))
+                    ) : (
+                      <tr>
+                        <td className={`px-[18px] py-9 text-center ${mutedTextClass}`} colSpan="5">
+                          No transactions match the current filters or search.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
 
-            <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--soft-bg)] p-[18px] xl:w-[32%] xl:min-w-[280px]">
-              <h3 className="mb-3.5 text-[1.45rem] tracking-[-0.04em]">Recent activity</h3>
-              {recentTransactions.map((transaction, index) => (
-                <article
-                  className={`flex items-center justify-between gap-3 ${index > 0 ? 'mt-4 border-t border-[var(--border-color)] pt-4' : ''}`}
-                  key={transaction.id}
-                >
-                  <div>
-                    <strong className="mb-1.5 block">{transaction.description}</strong>
-                    <p className={`text-sm leading-6 ${mutedTextClass}`}>
-                      {transaction.category} • {formatChartDate(transaction.date)}
-                    </p>
-                  </div>
-                  <span className={transaction.type === 'income' ? 'text-[var(--income-color)]' : 'text-[var(--expense-color)]'}>
-                    {transaction.type === 'income' ? '+' : '-'}
-                    {formatCurrency(transaction.amount)}
-                  </span>
-                </article>
-              ))}
+              <div className="rounded-[20px] border border-[var(--border-color)] bg-[var(--soft-bg)] p-[18px] xl:w-[32%] xl:min-w-[280px]">
+                <h3 className="mb-3.5 text-[1.45rem] tracking-[-0.04em]">Recent activity</h3>
+                {recentTransactions.map((transaction, index) => (
+                  <article
+                    className={`flex items-center justify-between gap-3 ${index > 0 ? 'mt-4 border-t border-[var(--border-color)] pt-4' : ''}`}
+                    key={transaction.id}
+                  >
+                    <div>
+                      <strong className="mb-1.5 block">{transaction.description}</strong>
+                      <p className={`text-sm leading-6 ${mutedTextClass}`}>
+                        {transaction.category} • {formatChartDate(transaction.date)}
+                      </p>
+                    </div>
+                    <span className={transaction.type === 'income' ? 'text-[var(--income-color)]' : 'text-[var(--expense-color)]'}>
+                      {transaction.type === 'income' ? '+' : '-'}
+                      {formatCurrency(transaction.amount)}
+                    </span>
+                  </article>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </section>
       </main>
     </div>
