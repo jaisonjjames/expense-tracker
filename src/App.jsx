@@ -16,9 +16,11 @@ import {
   CATEGORIES,
   clearTransactionsError,
   createTransaction,
+  deleteTransaction,
   fetchTransactions,
   selectBalance,
   selectCreateTransactionStatus,
+  selectDeletingTransactionIds,
   selectExpenseByCategory,
   selectFilteredTransactions,
   selectFilters,
@@ -92,6 +94,7 @@ function App() {
   const insights = useSelector(selectInsights)
   const transactionsStatus = useSelector(selectTransactionsStatus)
   const createTransactionStatus = useSelector(selectCreateTransactionStatus)
+  const deletingTransactionIds = useSelector(selectDeletingTransactionIds)
   const transactionsError = useSelector(selectTransactionsError)
 
   const [description, setDescription] = useState("")
@@ -182,6 +185,14 @@ function App() {
     }
   }
 
+  const handleDeleteTransaction = async (transactionId) => {
+    try {
+      await dispatch(deleteTransaction(transactionId)).unwrap()
+    } catch {
+      // The slice already captures and exposes the API error.
+    }
+  }
+
   const themeLabel = theme === 'dark' ? 'Switch to light' : 'Switch to dark'
   const isLoadingTransactions = transactionsStatus === 'loading'
   const isSavingTransaction = createTransactionStatus === 'loading'
@@ -234,9 +245,6 @@ function App() {
                 <span className={eyebrowClass}>New Entry</span>
                 <h2 className="mt-2 text-[1.7rem] tracking-[-0.04em]">Add transaction</h2>
               </div>
-              <p className={`text-sm leading-6 lg:max-w-[26ch] ${mutedTextClass}`}>
-                Capture spending and income without leaving the dashboard.
-              </p>
             </div>
 
             <form className="relative z-10 grid gap-4" onSubmit={handleSubmit}>
@@ -506,7 +514,6 @@ function App() {
                 <span className={eyebrowClass}>Ledger</span>
                 <h2 className={sectionTitleClass}>Transaction activity</h2>
               </div>
-              <p className={`text-sm leading-6 ${mutedTextClass}`}>Filter</p>
             </div>
 
             <div className="flex flex-col gap-3 md:flex-row md:flex-wrap xl:flex-nowrap">
@@ -547,7 +554,7 @@ function App() {
                 <table className="w-full border-collapse">
                   <thead className="bg-[var(--table-head-bg)]">
                     <tr>
-                      {['Date', 'Description', 'Category', 'Type', 'Amount'].map((heading) => (
+                      {['Date', 'Description', 'Category', 'Type', 'Amount', 'Action'].map((heading) => (
                         <th
                           className={`border-b border-[var(--border-color)] px-[18px] py-4 text-left text-[0.77rem] uppercase tracking-[0.14em] ${mutedTextClass}`}
                           key={heading}
@@ -562,7 +569,10 @@ function App() {
                       searchedTransactions
                         .slice()
                         .sort((left, right) => new Date(right.date) - new Date(left.date))
-                        .map((transaction) => (
+                        .map((transaction) => {
+                          const isDeletingTransaction = deletingTransactionIds.includes(Number(transaction.id))
+
+                          return (
                           <tr className="transition hover:bg-[var(--row-hover)]" key={transaction.id}>
                             <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
                               {formatChartDate(transaction.date)}
@@ -596,11 +606,21 @@ function App() {
                               {transaction.type === 'income' ? '+' : '-'}
                               {formatCurrency(transaction.amount)}
                             </td>
+                            <td className="border-b border-[var(--border-color)] px-[18px] py-4 max-[720px]:px-3">
+                              <button
+                                type="button"
+                                className="inline-flex min-h-9 items-center rounded-full border border-rose-400/25 bg-rose-500/10 px-3 text-sm font-semibold text-rose-300 transition hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                                onClick={() => handleDeleteTransaction(transaction.id)}
+                                disabled={isDeletingTransaction}
+                              >
+                                {isDeletingTransaction ? 'Deleting...' : 'Delete'}
+                              </button>
+                            </td>
                           </tr>
-                        ))
+                        )})
                     ) : (
                       <tr>
-                        <td className={`px-[18px] py-9 text-center ${mutedTextClass}`} colSpan="5">
+                        <td className={`px-[18px] py-9 text-center ${mutedTextClass}`} colSpan="6">
                           No transactions match the current filters or search.
                         </td>
                       </tr>

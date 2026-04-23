@@ -10,12 +10,13 @@ export const CATEGORIES = [
   "other",
 ]
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? '/api'
 const FALLBACK_API_PORT = '3001'
 
 const resolveApiBaseUrl = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL
+  const configuredApiUrl = import.meta.env?.VITE_API_URL
+
+  if (configuredApiUrl) {
+    return configuredApiUrl
   }
 
   if (typeof window === 'undefined') {
@@ -47,6 +48,7 @@ const initialState = {
   },
   status: 'idle',
   createStatus: 'idle',
+  deletingIds: [],
   error: null,
 }
 
@@ -61,7 +63,11 @@ export const fetchTransactions = createAsyncThunk(
         return rejectWithValue(data?.error ?? 'Failed to load transactions.')
       }
 
-      return data?.transactions ?? []
+      if (!Array.isArray(data?.transactions)) {
+        return rejectWithValue('The transaction API returned an invalid transactions payload.')
+      }
+
+      return data.transactions
     } catch {
       return rejectWithValue('Could not reach the transaction API.')
     }
@@ -85,9 +91,37 @@ export const createTransaction = createAsyncThunk(
         return rejectWithValue(data?.error ?? 'Failed to save the transaction.')
       }
 
-      return data?.transaction
+      if (!data?.transaction) {
+        return rejectWithValue('The transaction API returned an invalid create response.')
+      }
+
+      return data.transaction
     } catch {
       return rejectWithValue('Could not save the transaction to the API.')
+    }
+  },
+)
+
+export const deleteTransaction = createAsyncThunk(
+  'transactions/deleteTransaction',
+  async (transactionId, { rejectWithValue }) => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/transactions/${transactionId}`, {
+        method: 'DELETE',
+      })
+      const data = await readJsonSafely(response)
+
+      if (!response.ok) {
+        return rejectWithValue(data?.error ?? 'Failed to delete the transaction.')
+      }
+
+      if (!data?.transaction) {
+        return rejectWithValue('The transaction API returned an invalid delete response.')
+      }
+
+      return data.transaction
+    } catch {
+      return rejectWithValue('Could not delete the transaction from the API.')
     }
   },
 )
@@ -132,6 +166,20 @@ const transactionsSlice = createSlice({
         state.createStatus = 'failed'
         state.error = action.payload ?? 'Failed to save the transaction.'
       })
+      .addCase(deleteTransaction.pending, (state, action) => {
+        state.error = null
+        state.deletingIds.push(Number(action.meta.arg))
+      })
+      .addCase(deleteTransaction.fulfilled, (state, action) => {
+        const deletedId = Number(action.payload.id)
+        state.items = state.items.filter((transaction) => Number(transaction.id) !== deletedId)
+        state.deletingIds = state.deletingIds.filter((transactionId) => transactionId !== deletedId)
+      })
+      .addCase(deleteTransaction.rejected, (state, action) => {
+        const failedId = Number(action.meta.arg)
+        state.deletingIds = state.deletingIds.filter((transactionId) => transactionId !== failedId)
+        state.error = action.payload ?? 'Failed to delete the transaction.'
+      })
   },
 })
 
@@ -141,6 +189,7 @@ export const selectTransactions = (state) => state.transactions.items
 export const selectFilters = (state) => state.transactions.filters
 export const selectTransactionsStatus = (state) => state.transactions.status
 export const selectCreateTransactionStatus = (state) => state.transactions.createStatus
+export const selectDeletingTransactionIds = (state) => state.transactions.deletingIds
 export const selectTransactionsError = (state) => state.transactions.error
 
 export const selectFilteredTransactions = createSelector(
